@@ -27,40 +27,29 @@ Girdi (concept: "autoencoder")
 │  PromptTemplate  →  Teknik açıklama   │
 │  ChatGroq        →  Uzman dili        │
 └───────────────────────────────────────┘
-        │  AIMessage.content
-        ▼
-┌───────────────────────────────────────┐
-│  RunnableLambda  →  {"ml_concept": …} │
-└───────────────────────────────────────┘
-        │
-        ▼
-┌───────────────────────────────────────┐
-│             chain_two                 │
-│  PromptTemplate  →  Çocuk dili        │
-│  ChatGroq        →  Basit anlatım     │
-└───────────────────────────────────────┘
-        │  .content → child_explanation
-        ▼
-┌───────────────────────────────────────┐
-│  RunnableLambda  →  {"st_concept": …} │
-└───────────────────────────────────────┘
-        │
-        ▼
-┌───────────────────────────────────────┐
-│             chain_three               │
-│  PromptTemplate  →  Özetleme          │
-│  ChatGroq        →  Temiz özet        │
-└───────────────────────────────────────┘
-        │
-        ▼
-  {"anlatim": …, "ozet": …}
+        │  AIMessage.content (ml_concept)
+        ├─────────────────────┐
+        ▼                     ▼
+┌───────────────┐   ┌───────────────────────────────────────┐
+│   chain_two   │   │             chain_three               │
+│  Çocuk dili   │   │  PromptTemplate  →  Özetleme          │
+│  Basit anlatım│   │  ChatGroq        →  Teknik TL;DR      │
+└───────────────┘   └───────────────────────────────────────┘
+        │                     │
+        ▼                     ▼
+   "anlatim"               "ozet"
+        │                     │
+        └──────────┬──────────┘
+                   ▼
+       {"anlatim": …, "ozet": …}
 ```
 
 | Bileşen | Görevi |
 |---|---|
 | `RunnableLambda` | Zincir çıktısını bir sonraki zincirin beklediği formata çevirir |
 | `RunnablePassthrough.assign` | Mevcut veriyi koruyarak yeni bir alan ekler |
-| `chain_one \| lambda \| chain_two` | LCEL pipe operatörü ile zincirler birleştirilir |
+| `chain_one → chain_two` | Teknik açıklama → çocuğa basit anlatım |
+| `chain_one → chain_three` | Teknik açıklama → kısa teknik özet (TL;DR) |
 | `overall_chain.invoke(...)` | Tüm akışı tek çağrıyla başlatır |
 
 ---
@@ -107,15 +96,18 @@ overall_chain = (
     | RunnablePassthrough.assign(
         child_explanation=lambda x: chain_two.invoke({"ml_concept": x["ml_concept"]}).content
     )
-    | RunnableLambda(lambda x: {"st_concept": x["child_explanation"], "anlatim": x["child_explanation"]})
+    | RunnableLambda(lambda x: {
+        "st_concept": x["ml_concept"],          # chain_one çıktısı → teknik özet için
+        "anlatim": x["child_explanation"]       # chain_two çıktısı → çocuğa anlatım
+    })
     | RunnablePassthrough.assign(
         ozet=lambda x: chain_three.invoke({"st_concept": x["st_concept"]}).content
     )
 )
 
 response = overall_chain.invoke({"concept": "autoencoder"})
-print(response["anlatim"])
-print(response["ozet"])
+print(response["anlatim"])   # Çocuğa basit anlatım (chain_two)
+print(response["ozet"])      # Teknik TL;DR        (chain_one → chain_three)
 ```
 
 ---
